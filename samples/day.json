@@ -1,0 +1,18 @@
+{
+  "device": "P1",
+  "probe_batch": "head-day",
+  "document": "probe-day.csv",
+  "gauge_um": [0, 10],
+  "readings": [
+    {"id": "A", "reading_um": 0, "category": "dual", "line": 1},
+    {"id": "B", "reading_um": 7, "category": "u", "line": 2},
+    {"id": "M", "reading_um": null, "category": "dual", "line": 3}
+  ],
+  "slots": [
+    {"name": "U", "categories": ["dual", "u"], "candidates": ["A", "B", "M"]},
+    {"name": "V", "categories": ["dual"], "candidates": ["A", "B", "M"]}
+  ],
+  "request_x": [["U", ["A", "B"]], ["V", ["A"]]],
+  "request_y": [["V", ["A"]]],
+  "correction": {"id": "B", "reading_um": 9, "category": "u", "document": "corrected.csv", "line": 1}
+}
