@@ -64,6 +64,9 @@ def initialize_archive_store(db: sqlite3.Connection) -> None:
     db.execute('''CREATE TABLE IF NOT EXISTS report_deliveries (
         report_id TEXT PRIMARY KEY REFERENCES first_receipts(report_id)
     )''')
+    db.execute('''CREATE TABLE IF NOT EXISTS report_cancellations (
+        request_id TEXT PRIMARY KEY REFERENCES report_requests(request_id)
+    )''')
 
 
 def save_request_binding(db: sqlite3.Connection, binding: RequestBinding) -> RequestBinding:
@@ -116,6 +119,10 @@ def load_receipt_record(db: sqlite3.Connection, report_id: str) -> dict | None:
 
 
 def open_delivery(db: sqlite3.Connection, report_id: str) -> bool:
+    """Open delivery at most once, and never after the request was withdrawn."""
+    request_id = report_id[2:] if report_id.startswith('R-') else report_id
+    if request_is_cancelled(db, request_id):
+        return False
     result = db.execute('''INSERT INTO report_deliveries VALUES (?)
                            ON CONFLICT(report_id) DO NOTHING''', (report_id,))
     return result.rowcount == 1
@@ -124,3 +131,26 @@ def open_delivery(db: sqlite3.Connection, report_id: str) -> bool:
 def delivery_is_open(db: sqlite3.Connection, report_id: str) -> bool:
     return db.execute('SELECT 1 FROM report_deliveries WHERE report_id = ?',
                       (report_id,)).fetchone() is not None
+
+
+def mark_request_cancelled(db: sqlite3.Connection, request_id: str) -> bool:
+    """Record the withdrawal unless a delivery already owns the request."""
+    if delivery_is_open(db, f'R-{request_id}'):
+        return False
+    db.execute('INSERT INTO report_cancellations VALUES (?) ON CONFLICT(request_id) DO NOTHING',
+               (request_id,))
+    return True
+
+
+def request_is_cancelled(db: sqlite3.Connection, request_id: str) -> bool:
+    return db.execute('SELECT 1 FROM report_cancellations WHERE request_id = ?',
+                      (request_id,)).fetchone() is not None
+
+
+def list_delivered_reports(db: sqlite3.Connection, batch_id: str) -> dict[str, str]:
+    """Map each request of the batch whose delivery committed to its report id."""
+    rows = db.execute('''SELECT requests.request_id, deliveries.report_id
+        FROM report_requests AS requests JOIN report_deliveries AS deliveries
+             ON deliveries.report_id = 'R-' || requests.request_id
+        WHERE requests.batch_id = ?''', (batch_id,))
+    return {row['request_id']: row['report_id'] for row in rows}

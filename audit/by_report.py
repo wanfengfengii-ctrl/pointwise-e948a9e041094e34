@@ -1,6 +1,7 @@
 from sqlite3 import Connection
 
 from archive.readback import read_from_snapshot
+from archive.store import delivery_is_open
 from ledger.settlement import load_settlement
 from ledger.store import load_evidence_custody
 from review.batches import FrozenBatch
@@ -14,6 +15,7 @@ def reconcile_report(archive_db: Connection, ledger_db: Connection | None,
     if report['status'] != 'signed':
         return report
     settlement = load_settlement(ledger_db, report['request_id'])
+    committed = delivery_is_open(archive_db, report_id)
     custody = load_evidence_custody(ledger_db, (line['evidence_id'] for line in report['lines']))
     frozen = batch.evidence_by_key()
     lines = []
@@ -26,10 +28,16 @@ def reconcile_report(archive_db: Connection, ledger_db: Connection | None,
         origin_matches = source is not None and source == frozen.get(key) and (
             source.to_record() == item['measurement']
         )
-        custody_matches = (
-            settlement is not None and settlement.report_id == report_id and claim is not None
-            and claim.request_id == report['request_id'] and claim.report_id == report_id
-            and claim.state == 'issued' and claim.slot == slot
+        settled = settlement is not None and settlement.report_id == report_id
+        # A committed delivery may precede the ledger acknowledgement. Its durable
+        # held claim already owns the exact evidence and is the same write-off that
+        # readback hands out, so collection and shift reconciliation still agree.
+        pending_settlement = (settlement is None and committed and claim is not None
+                              and claim.request_id == report['request_id']
+                              and claim.slot == slot)
+        custody_matches = claim is not None and claim.request_id == report['request_id'] and (
+            (settled and claim.report_id == report_id and claim.state == 'issued' and claim.slot == slot)
+            or (pending_settlement and claim.state == 'held' and claim.report_id is None)
         )
         lines.append({**item, 'origin_matches': origin_matches, 'custody_matches': custody_matches})
     return {**report, 'lines': lines,

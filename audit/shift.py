@@ -1,6 +1,7 @@
 from sqlite3 import Connection, OperationalError
 
-from archive.store import Stores, archive_transaction, binding_for_report, list_batch_bindings
+from archive.store import (Stores, archive_transaction, binding_for_report, list_batch_bindings,
+                           list_delivered_reports)
 from audit.balance import count_balance
 from audit.by_evidence import reconcile_evidence
 from audit.by_report import reconcile_report
@@ -21,7 +22,8 @@ def _statement(archive_db: Connection, ledger_db: Connection | None, batch_id: s
         if binding is not None and binding.batch_id != batch_id:
             return {'status': 'batch_mismatch'}
         report = reconcile_report(archive_db, ledger_db, batch, report_id)
-    evidence = reconcile_evidence(ledger_db, batch)
+    evidence = reconcile_evidence(ledger_db, batch,
+                                  list_delivered_reports(archive_db, batch_id))
     if ledger_db is None:
         unconfirmed = list_batch_bindings(archive_db, batch_id)
     else:
